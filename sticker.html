@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Monopoly GO! Sticker Count</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+    <style>
+        .loader { border: 4px solid #e5e7eb; border-top: 4px solid #3b82f6; border-radius: 50%; width: 24px; height: 24px; animation: spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
+</head>
+<body class="bg-white min-h-screen font-sans text-slate-800 p-6">
+
+    <div class="max-w-4xl mx-auto">
+        <h1 class="text-2xl font-bold mb-4">Sticker Count</h1>
+
+        <div class="border border-gray-300 rounded p-4 bg-gray-50 mb-6">
+            <input type="file" id="imageInput" multiple accept="image/png, image/jpeg" class="mb-2 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100" onchange="handleFiles(this.files)">
+            <p class="text-xs text-gray-500" id="fileCount">Select up to 24 screenshots.</p>
+        </div>
+
+        <div id="progressSection" class="hidden flex items-center gap-3 mb-6 p-4 bg-blue-50 rounded text-blue-700 text-sm font-semibold">
+            <div class="loader"></div>
+            <span id="statusText">Processing...</span>
+        </div>
+
+        <div id="resultsSection" class="hidden flex flex-col md:flex-row gap-8 mb-8">
+            <div class="w-full">
+                <h2 class="font-bold text-lg mb-2 text-red-700">Missing Stickers</h2>
+                <pre id="missingText" class="bg-gray-100 p-4 rounded text-sm font-mono whitespace-pre-wrap border border-gray-200 min-h-[150px]"></pre>
+            </div>
+            
+            <div class="w-full">
+                <h2 class="font-bold text-lg mb-2 text-green-700">Has Extras</h2>
+                <pre id="extrasText" class="bg-gray-100 p-4 rounded text-sm font-mono whitespace-pre-wrap border border-gray-200 min-h-[150px]"></pre>
+            </div>
+        </div>
+
+        <div id="debugSection" class="hidden border-t-2 border-dashed border-gray-300 pt-6">
+            <h2 class="font-bold text-lg mb-2 text-gray-700">Debug View</h2>
+            <p class="text-sm text-gray-500 mb-4">Red box = Sticker bounds. <span class="text-green-600 font-bold">Green box</span> = Checking for solid white pixels.</p>
+            <div id="debugImages" class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8"></div>
+        </div>
+        
+        <canvas id="processCanvas" class="hidden"></canvas>
+    </div>
+
+    <script>
+        const missingData = {}; 
+        const extraData = {};   
+
+        const PIXEL_9_WIDTH = 1080;
+        const PIXEL_9_HEIGHT = 2424;
+
+        async function handleFiles(files) {
+            if (files.length === 0) return;
+            document.getElementById('fileCount').innerText = `${files.length} file(s) selected`;
+            document.getElementById('progressSection').classList.remove('hidden');
+            document.getElementById('resultsSection').classList.add('hidden');
+            document.getElementById('debugSection').classList.remove('hidden');
+            document.getElementById('debugImages').innerHTML = '';
+            
+            for (let prop in missingData) delete missingData[prop];
+            for (let prop in extraData) delete extraData[prop];
+
+            // Tesseract is now ONLY used for reading the bottom "Set X" banner
+            const worker = await Tesseract.createWorker('eng');
+
+            for (let i = 0; i < files.length; i++) {
+                document.getElementById('statusText').innerText = `Analyzing image ${i + 1} of ${files.length}...`;
+                await processImage(files[i], worker, i + 1);
+            }
+
+            await worker.terminate();
+            document.getElementById('progressSection').classList.add('hidden');
+            displayResults();
+        }
+
+        function getGridRect(col, row, imgW, imgH) {
+            const xs = [95, 410, 714];
+            const ys = [603, 1039, 1447]; 
+            const widths = [285, 285, 285]; 
+            const heights = [419, 396, 396]; 
+
+            return {
+                x: (xs[col] / PIXEL_9_WIDTH) * imgW,
+                y: (ys[row] / PIXEL_9_HEIGHT) * imgH,
+                w: (widths[col] / PIXEL_9_WIDTH) * imgW,
+                h: (heights[row] / PIXEL_9_HEIGHT) * imgH
+            };
+        }
+
+        function processImage(file, worker, fallbackIndex) {
+            return new Promise((resolve) => {
+                const img = new Image();
+                img.onload = async () => {
+                    const canvas = document.getElementById('processCanvas');
+                    const ctx = canvas.getContext('2d');
+                    canvas.width = img.width;
+                    canvas.height = img.height;
+                    ctx.drawImage(img, 0, 0);
+
+                    // 1. Get Set Number via OCR
+                    const bottomCanvas = document.createElement('canvas');
+                    bottomCanvas.width = img.width;
+                    bottomCanvas.height = img.height * 0.15;
+                    bottomCanvas.getContext('2d').drawImage(img, 0, img.height * 0.85, img.width, img.height * 0.15, 0, 0, img.width, img.height * 0.15);
+                    const { data: { text: bottomText } } = await worker.recognize(bottomCanvas);
+                    const setMatch = bottomText.match(/Set\s*(\d+)/i);
+                    const setNum = setMatch ? parseInt(setMatch[1]) : fallbackIndex;
+
+                    if (!missingData[setNum]) missingData[setNum] = [];
+                    if (!extraData[setNum]) extraData[setNum] = [];
+
+                    // 2. Process Grid Colors (NO OCR)
+                    for (let row = 0; row < 3; row++) {
+                        for (let col = 0; col < 3; col++) {
+                            const gridNumber = (row * 3) + col + 1;
+                            const rect = getGridRect(col, row, img.width, img.height);
+
+                            // Draw red sticker boundaries
+                            ctx.strokeStyle = "red";
+                            ctx.lineWidth = 6;
+                            ctx.strokeRect(rect.x, rect.y, rect.w, rect.h);
+
+                            const isOwned = checkForColor(ctx, rect.x, rect.y, rect.w, rect.h);
+
+                            if (!isOwned) {
+                                missingData[setNum].push(gridNumber);
+                            } else {
+                                // NEW LOGIC: Just look for the white badge
+                                const hasExtra = checkForWhiteBadge(ctx, rect.x, rect.y, rect.w, rect.h);
+                                if (hasExtra) {
+                                    extraData[setNum].push(gridNumber);
+                                }
+                            }
+                        }
+                    }
+
+                    // Save the debug image to the UI
+                    const debugImg = document.createElement('img');
+                    debugImg.src = canvas.toDataURL();
+                    debugImg.className = "w-full rounded border border-gray-300";
+                    document.getElementById('debugImages').appendChild(debugImg);
+
+                    resolve();
+                };
+                img.src = URL.createObjectURL(file);
+            });
+        }
+
+        function checkForColor(ctx, x, y, width, height) {
+            const sampleX = x + (width * 0.25);
+            const sampleY = y + (height * 0.25);
+            const sampleWidth = width * 0.5;
+            const sampleHeight = height * 0.5;
+
+            const imageData = ctx.getImageData(sampleX, sampleY, sampleWidth, sampleHeight);
+            const data = imageData.data;
+            let colorfulPixels = 0;
+
+            for (let i = 0; i < data.length; i += 4) {
+                const r = data[i], g = data[i + 1], b = data[i + 2];
+                const max = Math.max(r, g, b);
+                const min = Math.min(r, g, b);
+                if (max - min > 30) {
+                    colorfulPixels++;
+                }
+            }
+            
+            const totalSamplePixels = data.length / 4;
+            return colorfulPixels > (totalSamplePixels * 0.1); 
+        }
+
+        // --- NEW BOOLEAN CHECK FOR EXTRA BADGE ---
+        function checkForWhiteBadge(ctx, x, y, width, height) {
+            // Target the exact area the badge lives
+            const badgeX = x + (width * 0.05);
+            const badgeY = y + (height * 0.65);
+            const badgeW = width * 0.35;
+            const badgeH = height * 0.15;
+
+            // Draw a green box on the debug canvas so you can verify alignment
+            ctx.strokeStyle = "#16a34a"; // Tailwind green-600
+            ctx.lineWidth = 4;
+            ctx.strokeRect(badgeX, badgeY, badgeW, badgeH);
+
+            const imageData = ctx.getImageData(badgeX, badgeY, badgeW, badgeH);
+            const data = imageData.data;
+            let whitePixels = 0;
+
+            for (let i = 0; i < data.length; i += 4) {
+                const r = data[i], g = data[i + 1], b = data[i + 2];
+                
+                // Pure white is 255,255,255. We look for anything very bright (ignoring the black text)
+                if (r > 220 && g > 220 && b > 220) {
+                    whitePixels++;
+                }
+            }
+            
+            // If more than 20% of this specific box is pure white, they have an extra!
+            const totalSamplePixels = data.length / 4;
+            return whitePixels > (totalSamplePixels * 0.2); 
+        }
+
+        function displayResults() {
+            document.getElementById('resultsSection').classList.remove('hidden');
+
+            let missingString = "";
+            const missingSets = Object.keys(missingData).sort((a,b) => a - b);
+            for (const set of missingSets) {
+                if (missingData[set].length > 0) {
+                    const sortedGrids = missingData[set].sort((a,b) => a - b).join(', ');
+                    missingString += `Set ${set}: ${sortedGrids}\n`;
+                }
+            }
+            document.getElementById('missingText').innerText = missingString || "No missing stickers found.";
+
+            let extraString = "";
+            const extraSets = Object.keys(extraData).sort((a,b) => a - b);
+            for (const set of extraSets) {
+                if (extraData[set].length > 0) {
+                    // Sorting purely as numbers now, since the (+X) string is gone
+                    const sortedExtras = extraData[set].sort((a,b) => a - b).join(', ');
+                    extraString += `Set ${set}: ${sortedExtras}\n`;
+                }
+            }
+            document.getElementById('extrasText').innerText = extraString || "No extras found.";
+        }
+    </script>
+</body>
+</html>
