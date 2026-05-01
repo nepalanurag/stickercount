@@ -40,7 +40,7 @@
 
         <div id="debugSection" class="hidden border-t-2 border-dashed border-gray-300 pt-6">
             <h2 class="font-bold text-lg mb-2 text-gray-700">Debug View</h2>
-            <p class="text-sm text-gray-500 mb-4">Red box = Sticker bounds. <span class="text-green-600 font-bold">Green box</span> = Checking for solid white pixels.</p>
+            <p class="text-sm text-gray-500 mb-4">Red box = Sticker bounds. <span class="text-green-600 font-bold">Green box</span> = Checking for solid white pixels. <span class="text-blue-600 font-bold">Blue box</span> = Set number OCR.</p>
             <div id="debugImages" class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8"></div>
         </div>
         
@@ -102,11 +102,22 @@
                     canvas.height = img.height;
                     ctx.drawImage(img, 0, 0);
 
-                    // 1. Get Set Number via OCR
+                    // 1. Get Set Number via OCR using your specific coordinates
+                    const setCropX = (400 / PIXEL_9_WIDTH) * img.width;
+                    const setCropY = (1850 / PIXEL_9_HEIGHT) * img.height;
+                    const setCropW = ((650 - 400) / PIXEL_9_WIDTH) * img.width; // Width is 250
+                    const setCropH = (120 / PIXEL_9_HEIGHT) * img.height; // Safely covers the text height
+
+                    // Draw a blue box on the debug image so you can verify the set number crop
+                    ctx.strokeStyle = "blue";
+                    ctx.lineWidth = 4;
+                    ctx.strokeRect(setCropX, setCropY, setCropW, setCropH);
+
                     const bottomCanvas = document.createElement('canvas');
-                    bottomCanvas.width = img.width;
-                    bottomCanvas.height = img.height * 0.15;
-                    bottomCanvas.getContext('2d').drawImage(img, 0, img.height * 0.85, img.width, img.height * 0.15, 0, 0, img.width, img.height * 0.15);
+                    bottomCanvas.width = setCropW;
+                    bottomCanvas.height = setCropH;
+                    bottomCanvas.getContext('2d').drawImage(img, setCropX, setCropY, setCropW, setCropH, 0, 0, setCropW, setCropH);
+                    
                     const { data: { text: bottomText } } = await worker.recognize(bottomCanvas);
                     const setMatch = bottomText.match(/Set\s*(\d+)/i);
                     const setNum = setMatch ? parseInt(setMatch[1]) : fallbackIndex;
