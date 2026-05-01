@@ -229,7 +229,7 @@
             document.getElementById('missingText').innerText = missingString || "No missing stickers found.";
 
             let extraString = "";
-            const extraSets = Object.keys(extraData).sort((a,b) => a - b);
+            const extraSets = Object.keys(extraData).sort((a,b) => b - a);
             for (const set of extraSets) {
                 if (extraData[set].length > 0) {
                     // Sorting purely as numbers now, since the (+X) string is gone
