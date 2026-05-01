@@ -28,19 +28,18 @@
 
         <div id="resultsSection" class="hidden flex flex-col md:flex-row gap-8 mb-8">
             <div class="w-full">
-                <h2 class="font-bold text-lg mb-2 text-red-700">Missing Stickers</h2>
+                <h2 class="font-bold text-lg mb-2 text-red-700">Missing</h2>
                 <pre id="missingText" class="bg-gray-100 p-4 rounded text-sm font-mono whitespace-pre-wrap border border-gray-200 min-h-[150px]"></pre>
             </div>
             
             <div class="w-full">
-                <h2 class="font-bold text-lg mb-2 text-green-700">Has Extras</h2>
+                <h2 class="font-bold text-lg mb-2 text-green-700">Extras</h2>
                 <pre id="extrasText" class="bg-gray-100 p-4 rounded text-sm font-mono whitespace-pre-wrap border border-gray-200 min-h-[150px]"></pre>
             </div>
         </div>
 
         <div id="debugSection" class="hidden border-t-2 border-dashed border-gray-300 pt-6">
             <h2 class="font-bold text-lg mb-2 text-gray-700">Debug View</h2>
-            <p class="text-sm text-gray-500 mb-4">Red box = Sticker bounds. <span class="text-green-600 font-bold">Green box</span> = Checking for solid white pixels. <span class="text-blue-600 font-bold">Blue box</span> = Set number OCR.</p>
             <div id="debugImages" class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8"></div>
         </div>
         
