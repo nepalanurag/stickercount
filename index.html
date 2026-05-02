@@ -38,6 +38,27 @@
             </div>
         </div>
 
+        <div id="tradingSection" class="hidden border-t-2 border-dashed border-gray-300 pt-8 mb-10">
+            <h2 class="font-bold text-2xl mb-2 text-blue-800">Trade Matcher</h2>
+            <p class="text-sm text-gray-500 mb-6">Paste another player's list and select what you want to check against your data.</p>
+
+            <div class="grid md:grid-cols-2 gap-8">
+                <div class="flex flex-col gap-4">
+                    <select id="tradeMode" class="border border-gray-300 rounded p-2 bg-white text-sm font-semibold">
+                        <option value="missing">They are MISSING these (Check my Extras)</option>
+                        <option value="extra">They have EXTRAS of these (Check my Missing)</option>
+                    </select>
+                    <textarea id="tradeInput" class="border border-gray-300 rounded p-3 h-40 font-mono text-sm" placeholder="Paste their list here... e.g.&#10;Set 21: 1, 3, 4&#10;Set 22: 8"></textarea>
+                    <button onclick="findTrades()" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-6 rounded transition-colors w-full shadow">Check Trades</button>
+                </div>
+
+                <div class="flex flex-col gap-4">
+                    <label class="font-bold text-gray-700">Match Results:</label>
+                    <textarea id="tradeOutput" class="border border-gray-300 rounded p-3 h-full min-h-[160px] bg-gray-50 font-mono text-sm text-slate-700" readonly placeholder="Results will appear here..."></textarea>
+                </div>
+            </div>
+        </div>
+
         <div id="debugSection" class="hidden border-t-2 border-dashed border-gray-300 pt-6">
             <h2 class="font-bold text-lg mb-2 text-gray-700">Debug View</h2>
             <div id="debugImages" class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8"></div>
@@ -58,6 +79,7 @@
             document.getElementById('fileCount').innerText = `${files.length} file(s) selected`;
             document.getElementById('progressSection').classList.remove('hidden');
             document.getElementById('resultsSection').classList.add('hidden');
+            document.getElementById('tradingSection').classList.add('hidden');
             document.getElementById('debugSection').classList.remove('hidden');
             document.getElementById('debugImages').innerHTML = '';
             
@@ -217,6 +239,7 @@
 
         function displayResults() {
             document.getElementById('resultsSection').classList.remove('hidden');
+            document.getElementById('tradingSection').classList.remove('hidden');
 
             let missingString = "";
             const missingSets = Object.keys(missingData).sort((a,b) => a - b);
@@ -232,12 +255,94 @@
             const extraSets = Object.keys(extraData).sort((a,b) => b - a);
             for (const set of extraSets) {
                 if (extraData[set].length > 0) {
-                    // Sorting purely as numbers now, since the (+X) string is gone
                     const sortedExtras = extraData[set].sort((a,b) => a - b).join(', ');
                     extraString += `Set ${set}: ${sortedExtras}\n`;
                 }
             }
             document.getElementById('extrasText').innerText = extraString || "No extras found.";
+        }
+
+        // --- NEW TRADE MATCHING LOGIC ---
+        function findTrades() {
+            const inputText = document.getElementById('tradeInput').value;
+            const mode = document.getElementById('tradeMode').value;
+            const outputBox = document.getElementById('tradeOutput');
+            
+            if (!inputText.trim()) {
+                outputBox.value = 'Please paste a list first!';
+                return;
+            }
+
+            // Parse the pasted text using regex to find lines like "Set X: 1, 2, 3"
+            const parsedList = {};
+            const lines = inputText.split('\n');
+            for (let line of lines) {
+                const match = line.match(/Set\s*(\d+)\s*:(.*)/i);
+                if (match) {
+                    const setNum = parseInt(match[1]);
+                    // Extract all digits after the colon
+                    const grids = [...match[2].matchAll(/\d+/g)].map(m => parseInt(m[0]));
+                    if (grids.length > 0) {
+                        parsedList[setNum] = grids;
+                    }
+                }
+            }
+
+            if (Object.keys(parsedList).length === 0) {
+                outputBox.value = 'Could not read any "Set X: Y" formats in your text.';
+                return;
+            }
+
+            const matches = {};
+            let matchCount = 0;
+
+            if (mode === 'missing') {
+                // They are MISSING these -> Check my EXTRAS
+                for (const setNum in parsedList) {
+                    const theirMissing = parsedList[setNum];
+                    const myExtras = extraData[setNum] || [];
+                    theirMissing.forEach(grid => {
+                        if (myExtras.includes(grid)) {
+                            if (!matches[setNum]) matches[setNum] = [];
+                            matches[setNum].push(grid);
+                            matchCount++;
+                        }
+                    });
+                }
+            } else {
+                // They have EXTRAS -> Check my MISSING
+                for (const setNum in parsedList) {
+                    const theirExtras = parsedList[setNum];
+                    const myMissing = missingData[setNum] || [];
+                    theirExtras.forEach(grid => {
+                        if (myMissing.includes(grid)) {
+                            if (!matches[setNum]) matches[setNum] = [];
+                            matches[setNum].push(grid);
+                            matchCount++;
+                        }
+                    });
+                }
+            }
+
+            // Render Results
+            if (matchCount === 0) {
+                outputBox.value = 'No matching trades found for this list.';
+                return;
+            }
+
+            let resultText = `Found ${matchCount} match(es)!\n\n`;
+            
+            // Sort matched sets descending (highest set first)
+            const matchedSets = Object.keys(matches).map(Number).sort((a,b) => b - a);
+            
+            for (const setNum of matchedSets) {
+                const matchedGrids = matches[setNum].sort((a,b) => a - b).join(', ');
+                const actionText = mode === 'missing' ? 'You can GIVE them' : 'You can RECEIVE';
+                
+                resultText += `Set ${setNum}: ${actionText} Grid(s) ${matchedGrids}\n`;
+            }
+            
+            outputBox.value = resultText;
         }
     </script>
 </body>
