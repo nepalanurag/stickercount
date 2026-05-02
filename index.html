@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Monopoly GO! Sticker Count</title>
+    <title>Monopoly GO! Sticker Count (Mobile Optimized)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
     <style>
@@ -86,17 +86,23 @@
             for (let prop in missingData) delete missingData[prop];
             for (let prop in extraData) delete extraData[prop];
 
-            // Tesseract is now ONLY used for reading the bottom "Set X" banner
-            const worker = await Tesseract.createWorker('eng');
+            try {
+                const worker = await Tesseract.createWorker('eng');
 
-            for (let i = 0; i < files.length; i++) {
-                document.getElementById('statusText').innerText = `Analyzing image ${i + 1} of ${files.length}...`;
-                await processImage(files[i], worker, i + 1);
+                for (let i = 0; i < files.length; i++) {
+                    document.getElementById('statusText').innerText = `Analyzing image ${i + 1} of ${files.length}...`;
+                    await processImage(files[i], worker, i + 1);
+                }
+
+                await worker.terminate();
+                document.getElementById('progressSection').classList.add('hidden');
+                displayResults();
+            } catch (error) {
+                // MOBILE FIX: If it crashes out of memory, tell the user instead of freezing
+                console.error(error);
+                document.getElementById('statusText').innerText = "Error: Browser ran out of memory. Try selecting fewer images at once.";
+                document.getElementById('statusText').classList.add('text-red-600');
             }
-
-            await worker.terminate();
-            document.getElementById('progressSection').classList.add('hidden');
-            displayResults();
         }
 
         function getGridRect(col, row, imgW, imgH) {
@@ -114,71 +120,79 @@
         }
 
         function processImage(file, worker, fallbackIndex) {
-            return new Promise((resolve) => {
+            return new Promise((resolve, reject) => {
                 const img = new Image();
                 img.onload = async () => {
-                    const canvas = document.getElementById('processCanvas');
-                    const ctx = canvas.getContext('2d');
-                    canvas.width = img.width;
-                    canvas.height = img.height;
-                    ctx.drawImage(img, 0, 0);
+                    try {
+                        const canvas = document.getElementById('processCanvas');
+                        const ctx = canvas.getContext('2d');
+                        canvas.width = img.width;
+                        canvas.height = img.height;
+                        ctx.drawImage(img, 0, 0);
 
-                    // 1. Get Set Number via OCR using your specific coordinates
-                    const setCropX = (400 / PIXEL_9_WIDTH) * img.width;
-                    const setCropY = (1850 / PIXEL_9_HEIGHT) * img.height;
-                    const setCropW = ((650 - 400) / PIXEL_9_WIDTH) * img.width; // Width is 250
-                    const setCropH = (120 / PIXEL_9_HEIGHT) * img.height; // Safely covers the text height
+                        const setCropX = (400 / PIXEL_9_WIDTH) * img.width;
+                        const setCropY = (1850 / PIXEL_9_HEIGHT) * img.height;
+                        const setCropW = ((650 - 400) / PIXEL_9_WIDTH) * img.width; 
+                        const setCropH = (120 / PIXEL_9_HEIGHT) * img.height; 
 
-                    // Draw a blue box on the debug image so you can verify the set number crop
-                    ctx.strokeStyle = "blue";
-                    ctx.lineWidth = 4;
-                    ctx.strokeRect(setCropX, setCropY, setCropW, setCropH);
+                        ctx.strokeStyle = "blue";
+                        ctx.lineWidth = 4;
+                        ctx.strokeRect(setCropX, setCropY, setCropW, setCropH);
 
-                    const bottomCanvas = document.createElement('canvas');
-                    bottomCanvas.width = setCropW;
-                    bottomCanvas.height = setCropH;
-                    bottomCanvas.getContext('2d').drawImage(img, setCropX, setCropY, setCropW, setCropH, 0, 0, setCropW, setCropH);
-                    
-                    const { data: { text: bottomText } } = await worker.recognize(bottomCanvas);
-                    const setMatch = bottomText.match(/Set\s*(\d+)/i);
-                    const setNum = setMatch ? parseInt(setMatch[1]) : fallbackIndex;
+                        const bottomCanvas = document.createElement('canvas');
+                        bottomCanvas.width = setCropW;
+                        bottomCanvas.height = setCropH;
+                        bottomCanvas.getContext('2d').drawImage(img, setCropX, setCropY, setCropW, setCropH, 0, 0, setCropW, setCropH);
+                        
+                        const { data: { text: bottomText } } = await worker.recognize(bottomCanvas);
+                        const setMatch = bottomText.match(/Set\s*(\d+)/i);
+                        const setNum = setMatch ? parseInt(setMatch[1]) : fallbackIndex;
 
-                    if (!missingData[setNum]) missingData[setNum] = [];
-                    if (!extraData[setNum]) extraData[setNum] = [];
+                        if (!missingData[setNum]) missingData[setNum] = [];
+                        if (!extraData[setNum]) extraData[setNum] = [];
 
-                    // 2. Process Grid Colors (NO OCR)
-                    for (let row = 0; row < 3; row++) {
-                        for (let col = 0; col < 3; col++) {
-                            const gridNumber = (row * 3) + col + 1;
-                            const rect = getGridRect(col, row, img.width, img.height);
+                        for (let row = 0; row < 3; row++) {
+                            for (let col = 0; col < 3; col++) {
+                                const gridNumber = (row * 3) + col + 1;
+                                const rect = getGridRect(col, row, img.width, img.height);
 
-                            // Draw red sticker boundaries
-                            ctx.strokeStyle = "red";
-                            ctx.lineWidth = 6;
-                            ctx.strokeRect(rect.x, rect.y, rect.w, rect.h);
+                                ctx.strokeStyle = "red";
+                                ctx.lineWidth = 6;
+                                ctx.strokeRect(rect.x, rect.y, rect.w, rect.h);
 
-                            const isOwned = checkForColor(ctx, rect.x, rect.y, rect.w, rect.h);
+                                const isOwned = checkForColor(ctx, rect.x, rect.y, rect.w, rect.h);
 
-                            if (!isOwned) {
-                                missingData[setNum].push(gridNumber);
-                            } else {
-                                // NEW LOGIC: Just look for the white badge
-                                const hasExtra = checkForWhiteBadge(ctx, rect.x, rect.y, rect.w, rect.h);
-                                if (hasExtra) {
-                                    extraData[setNum].push(gridNumber);
+                                if (!isOwned) {
+                                    missingData[setNum].push(gridNumber);
+                                } else {
+                                    const hasExtra = checkForWhiteBadge(ctx, rect.x, rect.y, rect.w, rect.h);
+                                    if (hasExtra) {
+                                        extraData[setNum].push(gridNumber);
+                                    }
                                 }
                             }
                         }
+
+                        // MOBILE FIX: Compress the debug image heavily so it doesn't break mobile RAM
+                        const debugImg = document.createElement('img');
+                        debugImg.src = canvas.toDataURL("image/jpeg", 0.3); 
+                        debugImg.className = "w-full rounded border border-gray-300";
+                        document.getElementById('debugImages').appendChild(debugImg);
+
+                        // MOBILE FIX: Explicitly destroy the image URL out of memory to prevent leaks
+                        URL.revokeObjectURL(img.src);
+
+                        // Clear the canvases to free up memory immediately
+                        ctx.clearRect(0, 0, canvas.width, canvas.height);
+                        bottomCanvas.width = 0; 
+                        bottomCanvas.height = 0;
+
+                        resolve();
+                    } catch (err) {
+                        reject(err);
                     }
-
-                    // Save the debug image to the UI
-                    const debugImg = document.createElement('img');
-                    debugImg.src = canvas.toDataURL();
-                    debugImg.className = "w-full rounded border border-gray-300";
-                    document.getElementById('debugImages').appendChild(debugImg);
-
-                    resolve();
                 };
+                img.onerror = reject;
                 img.src = URL.createObjectURL(file);
             });
         }
@@ -206,16 +220,13 @@
             return colorfulPixels > (totalSamplePixels * 0.1); 
         }
 
-        // --- NEW BOOLEAN CHECK FOR EXTRA BADGE ---
         function checkForWhiteBadge(ctx, x, y, width, height) {
-            // Target the exact area the badge lives
             const badgeX = x + (width * 0.05);
             const badgeY = y + (height * 0.65);
             const badgeW = width * 0.35;
             const badgeH = height * 0.15;
 
-            // Draw a green box on the debug canvas so you can verify alignment
-            ctx.strokeStyle = "#16a34a"; // Tailwind green-600
+            ctx.strokeStyle = "#16a34a"; 
             ctx.lineWidth = 4;
             ctx.strokeRect(badgeX, badgeY, badgeW, badgeH);
 
@@ -225,14 +236,11 @@
 
             for (let i = 0; i < data.length; i += 4) {
                 const r = data[i], g = data[i + 1], b = data[i + 2];
-                
-                // Pure white is 255,255,255. We look for anything very bright (ignoring the black text)
                 if (r > 220 && g > 220 && b > 220) {
                     whitePixels++;
                 }
             }
             
-            // If more than 20% of this specific box is pure white, they have an extra!
             const totalSamplePixels = data.length / 4;
             return whitePixels > (totalSamplePixels * 0.2); 
         }
@@ -262,7 +270,6 @@
             document.getElementById('extrasText').innerText = extraString || "No extras found.";
         }
 
-        // --- NEW TRADE MATCHING LOGIC ---
         function findTrades() {
             const inputText = document.getElementById('tradeInput').value;
             const mode = document.getElementById('tradeMode').value;
@@ -273,14 +280,12 @@
                 return;
             }
 
-            // Parse the pasted text using regex to find lines like "Set X: 1, 2, 3"
             const parsedList = {};
             const lines = inputText.split('\n');
             for (let line of lines) {
                 const match = line.match(/Set\s*(\d+)\s*:(.*)/i);
                 if (match) {
                     const setNum = parseInt(match[1]);
-                    // Extract all digits after the colon
                     const grids = [...match[2].matchAll(/\d+/g)].map(m => parseInt(m[0]));
                     if (grids.length > 0) {
                         parsedList[setNum] = grids;
@@ -297,7 +302,6 @@
             let matchCount = 0;
 
             if (mode === 'missing') {
-                // They are MISSING these -> Check my EXTRAS
                 for (const setNum in parsedList) {
                     const theirMissing = parsedList[setNum];
                     const myExtras = extraData[setNum] || [];
@@ -310,7 +314,6 @@
                     });
                 }
             } else {
-                // They have EXTRAS -> Check my MISSING
                 for (const setNum in parsedList) {
                     const theirExtras = parsedList[setNum];
                     const myMissing = missingData[setNum] || [];
@@ -324,15 +327,12 @@
                 }
             }
 
-            // Render Results
             if (matchCount === 0) {
                 outputBox.value = 'No matching trades found for this list.';
                 return;
             }
 
             let resultText = `Found ${matchCount} match(es)!\n\n`;
-            
-            // Sort matched sets descending (highest set first)
             const matchedSets = Object.keys(matches).map(Number).sort((a,b) => b - a);
             
             for (const setNum of matchedSets) {
