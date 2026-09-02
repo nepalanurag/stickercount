@@ -76,7 +76,12 @@
 
         async function handleFiles(files) {
             if (files.length === 0) return;
-            document.getElementById('fileCount').innerText = `${files.length} file(s) selected`;
+            if (files.length > 24) {
+                document.getElementById('fileCount').innerText = `Too many files: using the first 24 of ${files.length}.`;
+                files = Array.from(files).slice(0, 24);
+            } else {
+                document.getElementById('fileCount').innerText = `${files.length} file(s) selected`;
+            }
             document.getElementById('progressSection').classList.remove('hidden');
             document.getElementById('resultsSection').classList.add('hidden');
             document.getElementById('tradingSection').classList.add('hidden');
@@ -260,7 +265,7 @@
             document.getElementById('missingText').innerText = missingString || "No missing stickers found.";
 
             let extraString = "";
-            const extraSets = Object.keys(extraData).sort((a,b) => b - a);
+            const extraSets = Object.keys(extraData).sort((a,b) => a - b);
             for (const set of extraSets) {
                 if (extraData[set].length > 0) {
                     const sortedExtras = extraData[set].sort((a,b) => a - b).join(', ');
@@ -333,7 +338,7 @@
             }
 
             let resultText = `Found ${matchCount} match(es)!\n\n`;
-            const matchedSets = Object.keys(matches).map(Number).sort((a,b) => b - a);
+            const matchedSets = Object.keys(matches).map(Number).sort((a,b) => a - b);
             
             for (const setNum of matchedSets) {
                 const matchedGrids = matches[setNum].sort((a,b) => a - b).join(', ');
